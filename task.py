@@ -59,11 +59,11 @@ def transform(shows):
     temp = personnel.reset_index()
     personnel = temp.rename(columns={0: 'name'})
     personnel.drop(columns=['index'], inplace=True)
+    personnel['name'] = personnel['name'].str.strip()
     personnel.drop_duplicates('name', inplace=True)
     personnel['id'] = range(1, len(personnel) + 1)
 
     logging.info('generating gender and splitting names')
-    personnel['name'] = personnel['name'].str.strip()
     personnel[['first_name', 'last_name']] = personnel['name'].apply(nsplit).apply(pd.Series)    
     personnel['gender'] = personnel['first_name'].apply(str.capitalize).apply(gender)
     # personnel.drop(columns=['name'], inplace=True)
@@ -95,7 +95,7 @@ def transform(shows):
     listings = {'show_id': texplod['show_id'], 'listing': texplod['listed_in']}
     listings = pd.DataFrame(listings)
 
-    # Drop unnecessary tables from shows
+    # Drop unnecessary columns from shows
 
     logging.info('dropping unnecessary columns')
     shows.drop(columns=['director', 'cast', 'listed_in'], inplace=True)
@@ -146,3 +146,61 @@ def main():
 main()
 
 
+query4.1.1 = '''SELECT shows.show_id 
+                    FROM shows 
+                    LEFT JOIN movie_crew 
+                    ON shows.show_id = movie_crew.show_id 
+                    WHERE movie_crew.show_id IS NULL;'''
+
+
+query4.1.2 = '''SELECT shows.show_id 
+                    FROM shows 
+                    LEFT JOIN listings 
+                    ON shows.show_id = listings.show_id 
+                    WHERE listings.show_id IS NULL;'''
+
+
+query5.1.1 = '''SELECT first_name
+                    FROM personnel
+                    WHERE gender = 'female'
+                    GROUP BY first_name
+                    ORDER BY COUNT(*) DESC
+                    LIMIT 1;'''
+
+query5.1.2 = '''SELECT first_name
+                    FROM personnel
+                    WHERE gender = 'male'
+                    GROUP BY first_name
+                    ORDER BY COUNT(*) DESC
+                    LIMIT 1;'''
+
+query5.1.3 = '''SELECT first_name
+                    FROM personnel
+                    WHERE gender = 'unknown'
+                    GROUP BY first_name
+                    ORDER BY COUNT(*) DESC
+                    LIMIT 1;'''
+
+
+query5.2   = '''SELECT show_id, title, EXTRACT(YEAR FROM date_added) - release_year AS gap
+                    FROM shows
+                    ORDER BY gap DESC
+                    LIMIT 1'''
+
+
+query5.3   = '''SELECT t1.release_year, t1.num_shows, t2.num_shows AS prev_num_shows,
+                    (t1.num_shows - t2.num_shows) / t2.num_shows * 100 AS increase_percentage
+                    FROM (
+                        SELECT release_year, COUNT(*) AS num_shows
+                        FROM shows
+                        WHERE type = 'TV Show'
+                        GROUP BY release_year
+                    ) t1
+                    JOIN (
+                        SELECT release_year, COUNT(*) AS num_shows
+                        FROM shows
+                        WHERE type = 'TV Show'
+                        GROUP BY release_year
+                    ) t2 ON t1.release_year = t2.release_year + 1
+                    ORDER BY increase_percentage DESC
+                    LIMIT 1;'''
