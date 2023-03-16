@@ -3,14 +3,19 @@ import gender_guesser.detector as gender
 from sqlalchemy import create_engine
 import logging
 import os
+import queries
+import calendar
+
 
 database_name = os.getenv('DB_NAME')
 database_user = os.getenv('DB_USER')
 database_pass = os.getenv('DB_PASS')
 database_host = os.getenv('DB_HOST')
 
-connection_string = 'postgresql://{}:{}@{}:5432/{}'.format(database_user, database_pass, database_host, database_name)
+connection_string = 'postgresql://{}:{}@{}:5432/{}'.format(
+    database_user, database_pass, database_host, database_name)
 d = gender.Detector(case_sensitive=False)
+
 
 def gender(val):
     ret = d.get_gender(val)
@@ -42,34 +47,38 @@ def transform(shows):
     shows['director'] = shows['director'].str.split(',')
     shows['listed_in'] = shows['listed_in'].str.split(',')
     shows['date_added'] = pd.to_datetime(shows['date_added'])
-    
+
     logging.info('exploding rows')
     dexplod = shows.explode('director')
     cexplod = shows.explode('cast')
     texplod = shows.explode('listed_in')
 
+    dexplod['director'] = dexplod['director'].str.strip()
+    cexplod['cast'] = cexplod['cast'].str.strip()
+
     logging.info('dropping duplicates in personnel')
     directors = dexplod['director'].drop_duplicates().dropna()
     actors = cexplod['cast'].drop_duplicates().dropna()
 
-    # Personnel Table 
-    
+    # Personnel Table
+
     logging.info('unifying personnel')
     personnel = pd.concat([actors, directors])
     temp = personnel.reset_index()
     personnel = temp.rename(columns={0: 'name'})
     personnel.drop(columns=['index'], inplace=True)
-    personnel['name'] = personnel['name'].str.strip()
     personnel.drop_duplicates('name', inplace=True)
     personnel['id'] = range(1, len(personnel) + 1)
 
     logging.info('generating gender and splitting names')
-    personnel[['first_name', 'last_name']] = personnel['name'].apply(nsplit).apply(pd.Series)    
-    personnel['gender'] = personnel['first_name'].apply(str.capitalize).apply(gender)
+    personnel[['first_name', 'last_name']] = personnel['name'].apply(
+        nsplit).apply(pd.Series)
+    personnel['gender'] = personnel['first_name'].apply(
+        str.capitalize).apply(gender)
     # personnel.drop(columns=['name'], inplace=True)
 
     # Movie-Personnel Normalisation
-    
+
     logging.info('generating cast normalisation')
     cast = {'show_id': cexplod['show_id'], 'name': cexplod['cast']}
     cast = pd.DataFrame(cast)
@@ -84,7 +93,9 @@ def transform(shows):
 
     logging.info('joining on names')
     movie_crew = pd.concat([cast, director], axis=0)
-    movie_crew = pd.merge(personnel[['id', 'name']], movie_crew, on='name', how='inner')
+    movie_crew = pd.merge(
+        personnel[['id', 'name']], movie_crew, on='name', how='left')
+    movie_crew.dropna(inplace=True)
     logging.info('cleaning up')
     movie_crew.rename(columns={'id': 'personnel_id'}, inplace=True)
     movie_crew.drop(columns=['name'], inplace=True)
@@ -117,26 +128,70 @@ def load(shows, personnel, movie_crew, listings):
     shows.to_sql(name='shows', con=engine, if_exists='append', index=False)
 
     logging.info('loading personnel table')
-    personnel.to_sql(name='personnel', con=engine, if_exists='append', index=False)
-    
+    personnel.to_sql(name='personnel', con=engine,
+                     if_exists='append', index=False)
+
     logging.info('loading movie_crew table')
-    movie_crew.to_sql(name='movie_crew', con=engine, if_exists='append', index=False)
-    
+    movie_crew.to_sql(name='movie_crew', con=engine,
+                      if_exists='append', index=False)
+
     logging.info('loading listings table')
-    listings.to_sql(name='listings', con=engine, if_exists='append', index=False)
+    listings.to_sql(name='listings', con=engine,
+                    if_exists='append', index=False)
+
+
+def execute_sql():
+    engine = create_engine(connection_string)
+    conn = engine.connect()
+
+    result = conn.execute(queries.query4_1_1)
+    logging.warning('Number of shows with no listed crew : {}'.format(result.fetchone()[0]))
+
+    result = conn.execute(queries.query4_1_2)
+    logging.warning('Number of shows with no listed listings : {}'.format(result.fetchone()[0]))
+
+    result = conn.execute(queries.query5_1_1)
+    logging.info('Most popular name for actresses : {}'.format(result.fetchone()[0]))
+
+    result = conn.execute(queries.query5_1_2)
+    logging.info('Most popular name for actors : {}'.format(result.fetchone()[0]))
+
+    result = conn.execute(queries.query5_1_3)
+    logging.info('Most popular name for folks whose name could not be reliably gendered or is androgenous : {}'.format(result.fetchone()[0]))
+
+    result = conn.execute(queries.query5_2)
+    logging.info('The movie that had the longest timespan from release to appearing on Netflix : {}'.format(result.fetchone()[0]))
+
+    result = conn.execute(queries.query5_3)
+    val = result.fetchone()
+    logging.info('The month with the most number of releases historically is {} with {} releases'.format(calendar.month_name[int(val[0])], val[1]))
+
+    result = conn.execute(queries.query5_4)
+    val = result.fetchone()
+    logging.info('The year with the greatest YoY growth in number of releases is {} with {}% growth'.format(val[0], val[3]))
+
+    result = conn.execute(queries.query5_5_1.format('Woody Harrelson'))
+    val = result.fetchall()
+    movie_list = [x[0] for x in val]
+    result = conn.execute(queries.query5_5_2.format(','.join(['%s']*len(movie_list))), movie_list)
+    val = result.fetchall()
+    actresses = [x for x in val if x[1] > 1]
+    logging.info('The actresses who have worked with Woodie Harrelson more than once are : {}'.format(', '.join([x[0] for x in actresses])))
 
 
 def main():
     logging.basicConfig(level=logging.INFO)
 
-    logging.info('extracting csv')
-    shows = extract('netflix_titles.csv')
+    # logging.info('extracting csv')
+    # shows = extract('netflix_titles.csv')
 
-    logging.info('performing transforms')
-    shows, personnel, movie_crew, listings = transform(shows)
+    # logging.info('performing transforms')
+    # shows, personnel, movie_crew, listings = transform(shows)
 
-    logging.info('loading to database')
-    load(shows, personnel, movie_crew, listings)
+    # logging.info('loading to database')
+    # load(shows, personnel, movie_crew, listings)
+
+    execute_sql()
 
     # engine = create_engine('postgresql://linkfire:linkfire@localhost:5432/netflix')
     # sql_schema = pd.io.sql.get_schema(listings, 'listings', con=engine)
@@ -144,63 +199,3 @@ def main():
 
 
 main()
-
-
-query4.1.1 = '''SELECT shows.show_id 
-                    FROM shows 
-                    LEFT JOIN movie_crew 
-                    ON shows.show_id = movie_crew.show_id 
-                    WHERE movie_crew.show_id IS NULL;'''
-
-
-query4.1.2 = '''SELECT shows.show_id 
-                    FROM shows 
-                    LEFT JOIN listings 
-                    ON shows.show_id = listings.show_id 
-                    WHERE listings.show_id IS NULL;'''
-
-
-query5.1.1 = '''SELECT first_name
-                    FROM personnel
-                    WHERE gender = 'female'
-                    GROUP BY first_name
-                    ORDER BY COUNT(*) DESC
-                    LIMIT 1;'''
-
-query5.1.2 = '''SELECT first_name
-                    FROM personnel
-                    WHERE gender = 'male'
-                    GROUP BY first_name
-                    ORDER BY COUNT(*) DESC
-                    LIMIT 1;'''
-
-query5.1.3 = '''SELECT first_name
-                    FROM personnel
-                    WHERE gender = 'unknown'
-                    GROUP BY first_name
-                    ORDER BY COUNT(*) DESC
-                    LIMIT 1;'''
-
-
-query5.2   = '''SELECT show_id, title, EXTRACT(YEAR FROM date_added) - release_year AS gap
-                    FROM shows
-                    ORDER BY gap DESC
-                    LIMIT 1'''
-
-
-query5.3   = '''SELECT t1.release_year, t1.num_shows, t2.num_shows AS prev_num_shows,
-                    (t1.num_shows - t2.num_shows) / t2.num_shows * 100 AS increase_percentage
-                    FROM (
-                        SELECT release_year, COUNT(*) AS num_shows
-                        FROM shows
-                        WHERE type = 'TV Show'
-                        GROUP BY release_year
-                    ) t1
-                    JOIN (
-                        SELECT release_year, COUNT(*) AS num_shows
-                        FROM shows
-                        WHERE type = 'TV Show'
-                        GROUP BY release_year
-                    ) t2 ON t1.release_year = t2.release_year + 1
-                    ORDER BY increase_percentage DESC
-                    LIMIT 1;'''
