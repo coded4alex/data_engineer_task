@@ -1,3 +1,42 @@
+create_personnel = '''CREATE TABLE IF NOT EXISTS personnel (
+                        name TEXT,
+                        id BIGINT PRIMARY KEY UNIQUE,
+                        first_name TEXT,
+                        last_name TEXT,
+                        gender TEXT
+                    );'''
+
+create_shows = '''CREATE TABLE IF NOT EXISTS shows (
+                    show_id TEXT PRIMARY KEY UNIQUE,
+                    type TEXT,
+                    title TEXT,
+                    country TEXT,
+                    date_added TIMESTAMP WITHOUT TIME ZONE,
+                    release_year BIGINT,
+                    rating TEXT,
+                    duration TEXT,
+                    description TEXT
+                );'''
+
+create_movie_crew = '''CREATE TABLE IF NOT EXISTS movie_crew (
+                        personnel_id BIGINT REFERENCES personnel(id),
+                        show_id TEXT REFERENCES shows(show_id),
+                        personnel_type TEXT
+                    );'''
+
+create_listings = '''CREATE TABLE IF NOT EXISTS listings (
+                        show_id TEXT REFERENCES shows(show_id),
+                        listing TEXT
+                    );'''
+
+create_history = '''CREATE TABLE IF NOT EXISTS history (
+                        name TEXT
+                    );'''
+
+check_history = '''SELECT * FROM history WHERE name = '{}';'''
+
+insert_history = '''INSERT INTO history (name) VALUES ('{}');'''
+
 query4_1_1 = '''SELECT COUNT(shows.show_id) 
                     FROM shows 
                     LEFT JOIN movie_crew 
