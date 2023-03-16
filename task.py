@@ -269,6 +269,7 @@ def test_load():
     engine = create_engine(connection_string)
     conn = engine.connect()
     result = conn.execute('SELECT COUNT(*) FROM shows').fetchone()
+    purge()
     assert result[0] == 7787
 
 
@@ -301,5 +302,5 @@ def main():
     logging.info('executing sql queries')
     execute_sql()
 
-
-main()
+if __name__ == '__main__':
+    main()
